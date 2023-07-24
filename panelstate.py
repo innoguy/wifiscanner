@@ -3,12 +3,17 @@ import argparse
 import os
 import time
 import threading
+import atexit
 
 state = {}
 prot = {}
 prev_msg='x:x'
 ptime = ''
 pckts = None
+
+def stopMonitoring(parameters):
+    if (parameters["interface"] is not None):
+        os.system("airmon-ng stop {}".format(parameters["interface"]))
 
 def scanPackets(parameters):
     global pckts
@@ -42,10 +47,6 @@ def readPackets(parameters):
 # Type 2    :   Data
 
 panels = [
-    'f8:4d:89:92:ad:f0',
-]
-
-esp_panels = [
     '68:67:25:57:20:d4',
     '68:67:25:54:4f:10',
     '68:67:25:56:ee:e0',  
@@ -239,6 +240,7 @@ if __name__ == "__main__":
         "channel" : channel,
         "interface" : interface,   
     }
+    atexit.register(stopMonitoring, parameters)
     t1 = threading.Thread(target=module, args=[parameters])
     t1.start()
     while True:
