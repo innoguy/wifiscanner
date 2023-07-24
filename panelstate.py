@@ -5,33 +5,47 @@ import time
 import threading
 
 state = {}
-pckts = ""
 prot = {}
 prev_msg='x:x'
 ptime = ''
+pckts = None
 
-def scanPackets(interface):
+def scanPackets(parameters):
     global pckts
-    pckts = sniff(iface=interface, prn=lambda p: analysePacket(p))
+    print("Starting scan on interface {}".format(parameters["interface"]))
+    if parameters["mode"] == 'status':
+        pckts = sniff(iface=parameters["interface"], prn=lambda p: analysePacket(p))
+    elif parameters["mode"] == 'protocol':
+        pckts = sniff(iface=parameters["interface"], prn=lambda p: analyseProtocol(p))
+    else:
+        print("Mode not set")
+        exit()
 
-def readPackets(filename):
+def readPackets(parameters):
     global pckts
-    print("Processing {}. Please wait!".format(filename))
+    print("Processing {}. Please wait!".format(parameters["filename"]))
     # pckts = rdpcap(args.pcapfile)
-    reader = PcapReader(filename)
-    print("Read {} packets from file.".format(len(pckts)))
+    reader = PcapReader(parameters["filename"])
+    # print("Read {} packets from file.".format(len(pckts)))
+    if parameters["mode"] == 'status':
+        module = analysePacket
+    elif parameters["mode"] == 'protocol':
+        module = analyseProtocol
+    else:
+        print("Mode not set")
+        exit()
     for p in reader:
-        analysePacket(p)
+        module(p)
 
 # Type 0    :   Management
 # Type 1    :   Control
 # Type 2    :   Data
 
-testpanels = [
+panels = [
     'f8:4d:89:92:ad:f0',
 ]
 
-panels = [
+esp_panels = [
     '68:67:25:57:20:d4',
     '68:67:25:54:4f:10',
     '68:67:25:56:ee:e0',  
@@ -109,7 +123,6 @@ def analyseProtocol(p):
     global prot
     global prev_msg
     if p.haslayer(Dot11):
-        print(p)
         if ((p.addr1 == panels[0]) or (p.addr2 == panels[0])):
             if ((p.type==1) and (p.subtype==13)):
                 pass  # ignore ACK's
@@ -127,8 +140,9 @@ def analyseProtocol(p):
 def analysePacket(p):
     global state
     global ptime
+    global panels
     if p.haslayer(Dot11):
-        if ((p.addr1[0:5] == '58:cf') or (p.addr1[0:5] =='68:67')):
+        if (p.addr1 in panels):
             ptime = p.time
             if p.addr1 not in state.keys():
                 state.update({p.addr1 : 1})
@@ -140,10 +154,12 @@ def analysePacket(p):
                 state.update({p.addr1 : 2})
             elif p.type == 0 and p.subtype == 12 and (state[p.addr1] >= 2 ):
                 state.update({p.addr1 : 1})
+            elif ((p.type == 1 and p.subtype == 11) or (p.type == 1 and p.subtype == 12)) and (state[p.addr1] < 3):
+                state.update({p.addr1 : 3})
             else:
                 pass
         if not p.addr2 is None:
-            if ((p.addr2[0:5] == '58:cf') or (p.addr2[0:5] =='68:67')):
+            if (p.addr2 in panels):
                 ptime = p.time
                 if p.addr2 not in state.keys():
                     state.update({p.addr2 : 1})
@@ -155,15 +171,17 @@ def analysePacket(p):
                     state.update({p.addr2 : 2})
                 elif p.type == 0 and p.subtype == 12 and (state[p.addr2] >= 2 ):
                     state.update({p.addr2 : 1})
+                elif ((p.type == 1 and p.subtype == 11) or (p.type == 1 and p.subtype == 12)) and (state[p.addr2] < 3):
+                    state.update({p.addr2 : 3})
                 else:
                     pass
 
 def showStatus():
     global state
     global ptime
-    # os.system('clear')
+    os.system('clear')
     print("Showing status at {}:".format(ptime))
-    for k in state.keys():
+    for k in state.copy():
         if state[k] == 1:
             out = "*---"
         elif state[k] == 2:
@@ -177,8 +195,8 @@ def showStatus():
 
 def showProtocol():
     global prot
-    # os.system('clear')
-    for k in prot.keys():
+    os.system('clear')
+    for k in prot.copy():
         print("{} : {}".format(k, prot[k]))
 
 if __name__ == "__main__":
@@ -195,6 +213,7 @@ if __name__ == "__main__":
     else: 
         channel = 0
     mode = args.mode
+    
     if filename is None and interface is None:
         print("Please choose -r (to read from file) or -i (to scan from network interface)")
         exit()
@@ -204,22 +223,23 @@ if __name__ == "__main__":
             exit()
         try:
             print("Configuring to monitor channel {} on interface {}".format(channel, interface))
+            os.system('airmon-ng stop {}'.format(interface+"mon"))
             os.system('airmon-ng check kill')
             os.system('airmon-ng start {} {}'.format(interface, channel))
-            # os.system('systemctl stop NetworkManager')
-            # os.system('ifconfig {} down'.format(interface))
-            # os.system('iwconfig {} mode monitor'.format(interface))
-            # os.system('iwconfig {} channel {}'.format(interface, channel))
-            # os.system('ifconfig {} up'.format(interface))
-        except:
-            print("Failed to open network interface.")
+            interface += "mon"
+        except Exception as error: 
+            print("Failed to open network interface: {}".format(error))
             exit()
         module = scanPackets
-        parameter = interface
     elif filename is not None:
         module = readPackets
-        parameter = filename
-    t1 = threading.Thread(target=module, args=[parameter])
+    parameters = {
+        "filename": filename,
+        "mode" : mode,
+        "channel" : channel,
+        "interface" : interface,   
+    }
+    t1 = threading.Thread(target=module, args=[parameters])
     t1.start()
     while True:
         if mode == "status":
@@ -229,5 +249,5 @@ if __name__ == "__main__":
         else:
             print("Please specify mode with -m status|protocol")
             exit()
-        time.sleep(1)
+        time.sleep(0.1)
 
