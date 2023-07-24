@@ -155,7 +155,11 @@ def analysePacket(p):
                 state.update({p.addr1 : 2})
             elif p.type == 0 and p.subtype == 12 and (state[p.addr1] >= 2 ):
                 state.update({p.addr1 : 1})
-            elif ((p.type == 1 and p.subtype == 11) or (p.type == 1 and p.subtype == 12)) and (state[p.addr1] < 3):
+            elif ((p.type == 1 and p.subtype == 11) or 
+                  (p.type == 1 and p.subtype == 12) or 
+                  (p.type == 2 and p.subtype == 4) or 
+                  (p.type == 2 and p.subtype == 12) 
+                  ) and (state[p.addr1] < 3):
                 state.update({p.addr1 : 3})
             else:
                 pass
@@ -172,7 +176,11 @@ def analysePacket(p):
                     state.update({p.addr2 : 2})
                 elif p.type == 0 and p.subtype == 12 and (state[p.addr2] >= 2 ):
                     state.update({p.addr2 : 1})
-                elif ((p.type == 1 and p.subtype == 11) or (p.type == 1 and p.subtype == 12)) and (state[p.addr2] < 3):
+                elif ((p.type == 1 and p.subtype == 11) or 
+                      (p.type == 1 and p.subtype == 12) or 
+                      (p.type == 2 and p.subtype == 4) or 
+                      (p.type == 2 and p.subtype == 12) 
+                      ) and (state[p.addr2] < 3):
                     state.update({p.addr2 : 3})
                 else:
                     pass
