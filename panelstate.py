@@ -16,25 +16,29 @@ def processCommandline():
     args = parser.parse_args()
     return args
 
-def scanPackets():
+def scanPackets(interface):
     global pckts
-    pckts = sniff(iface="wlan0", prn=lambda p: analysePacket(p))
+    pckts = sniff(iface=interface, prn=lambda p: analysePacket(p))
 
-def readPackets():
+def readPackets(filename):
     global pckts
     args = processCommandline()
-    print("Processing {}. Please wait!".format(args.pcapfile))
+    print("Processing {}. Please wait!".format(filename))
     # pckts = rdpcap(args.pcapfile)
-    reader = PcapReader(args.pcapfile)
+    reader = PcapReader(filename)
     print("Read {} packets from file.".format(len(pckts)))
     for p in reader:
-        analyseProtocol(p)
+        analysePacket(p)
 
 # Type 0    :   Management
 # Type 1    :   Control
 # Type 2    :   Data
 
 panels = [
+    'f8:4d:89:92:ad:f0',
+]
+
+esp32_panels = [
     '68:67:25:57:20:d4',
     '68:67:25:54:4f:10',
     '68:67:25:56:ee:e0',  
@@ -112,6 +116,7 @@ def analyseProtocol(p):
     global prot
     global prev_msg
     if p.haslayer(Dot11):
+        print(p)
         if ((p.addr1 == panels[0]) or (p.addr2 == panels[0])):
             if ((p.type==1) and (p.subtype==13)):
                 pass  # ignore ACK's
@@ -163,7 +168,7 @@ def analysePacket(p):
 def showStatus():
     global state
     global ptime
-    os.system('clear')
+    # os.system('clear')
     print("Showing status at {}:".format(ptime))
     for k in state.keys():
         if state[k] == 1:
@@ -179,18 +184,57 @@ def showStatus():
 
 def showProtocol():
     global prot
-    os.system('clear')
+    # os.system('clear')
     for k in prot.keys():
         print("{} : {}".format(k, prot[k]))
 
 if __name__ == "__main__":
-    # os.system('ifconfig wlan0 down')
-    # os.system('iwconfig wlan0 mode monitor')
-    # os.system('iwconfig wlan0 channel 10')
-    # os.system('ifconfig wlan0 up')
-    t1 = threading.Thread(target=readPackets)
+    parser = argparse.ArgumentParser(description='Monitor wifi connections.')
+    parser.add_argument('-r', '--read', help="Read packets from pcap file")
+    parser.add_argument('-i', '--interface', help="Sniff packets from wireless network interface")
+    parser.add_argument('-c', '--channel', help="Channel to sniff")
+    parser.add_argument('-m', '--mode', help="Mode of operartion (status | protocol)")
+    args = parser.parse_args()
+    if args.read is None and args.interface is None:
+        print("Please choose -r (to read from file) or -i (to scan from network interface)")
+        exit()
+    if args.interface is not None:
+        interface = args.interface
+        if args.channel is None:
+            print("Please set wifi channel to sniff")
+            exit()
+        else:
+            try:
+                channel = int(args.channel)
+            except:
+                print("Invalid channel. Please enter integer.")
+        try:
+            print("Configuring to monitor channel {} on interface {}".format(channel, interface))
+            os.system('airmon-ng check kill')
+            os.system('airmon-ng start {} {}'.format(interface, channel))
+            # os.system('systemctl stop NetworkManager')
+            # os.system('ifconfig {} down'.format(interface))
+            # os.system('iwconfig {} mode monitor'.format(interface))
+            # os.system('iwconfig {} channel {}'.format(interface, channel))
+            # os.system('ifconfig {} up'.format(interface))
+        except:
+            print("Failed to open network interface.")
+            exit()
+        module = scanPackets
+        parameter = interface
+    elif args.read is not None:
+        filename = args.read
+        module = readPackets
+        parameter = filename
+    t1 = threading.Thread(target=module, args=[parameter])
     t1.start()
     while True:
-        showProtocol()
+        if args.mode == "status":
+            showStatus()
+        elif args.mode == "protocol":
+            showProtocol()
+        else:
+            print("Please specify mode with -m status|protocol")
+            exit()
         time.sleep(1)
 
