@@ -10,19 +10,12 @@ prot = {}
 prev_msg='x:x'
 ptime = ''
 
-def processCommandline():
-    parser = argparse.ArgumentParser(description="WiFi panel states")
-    parser.add_argument("pcapfile", help="pcap file")
-    args = parser.parse_args()
-    return args
-
 def scanPackets(interface):
     global pckts
     pckts = sniff(iface=interface, prn=lambda p: analysePacket(p))
 
 def readPackets(filename):
     global pckts
-    args = processCommandline()
     print("Processing {}. Please wait!".format(filename))
     # pckts = rdpcap(args.pcapfile)
     reader = PcapReader(filename)
@@ -34,11 +27,11 @@ def readPackets(filename):
 # Type 1    :   Control
 # Type 2    :   Data
 
-panels = [
+testpanels = [
     'f8:4d:89:92:ad:f0',
 ]
 
-esp32_panels = [
+panels = [
     '68:67:25:57:20:d4',
     '68:67:25:54:4f:10',
     '68:67:25:56:ee:e0',  
@@ -195,19 +188,20 @@ if __name__ == "__main__":
     parser.add_argument('-c', '--channel', help="Channel to sniff")
     parser.add_argument('-m', '--mode', help="Mode of operartion (status | protocol)")
     args = parser.parse_args()
-    if args.read is None and args.interface is None:
+    filename = args.read
+    interface = args.interface
+    if args.channel is not None:
+        channel = int(args.channel)
+    else: 
+        channel = 0
+    mode = args.mode
+    if filename is None and interface is None:
         print("Please choose -r (to read from file) or -i (to scan from network interface)")
         exit()
-    if args.interface is not None:
-        interface = args.interface
-        if args.channel is None:
+    if interface is not None:
+        if channel is None:
             print("Please set wifi channel to sniff")
             exit()
-        else:
-            try:
-                channel = int(args.channel)
-            except:
-                print("Invalid channel. Please enter integer.")
         try:
             print("Configuring to monitor channel {} on interface {}".format(channel, interface))
             os.system('airmon-ng check kill')
@@ -222,16 +216,15 @@ if __name__ == "__main__":
             exit()
         module = scanPackets
         parameter = interface
-    elif args.read is not None:
-        filename = args.read
+    elif filename is not None:
         module = readPackets
         parameter = filename
     t1 = threading.Thread(target=module, args=[parameter])
     t1.start()
     while True:
-        if args.mode == "status":
+        if mode == "status":
             showStatus()
-        elif args.mode == "protocol":
+        elif mode == "protocol":
             showProtocol()
         else:
             print("Please specify mode with -m status|protocol")
