@@ -202,13 +202,13 @@ def showStatus():
     os.system('clear')
     print("Showing status at {}:".format(ptime))
     for k in state.copy():
-        if state[k] == 1:
+        if state[k] == 1:   # unauthenticated, unassociated
             out = "*---"
-        elif state[k] == 2:
+        elif state[k] == 2: # authenticated, unassociated
             out = "-*--"
-        elif state[k] == 3:
+        elif state[k] == 3: # authenticated, associated, 802.1X port locked
             out = "--*-"
-        elif state[k] == 4:
+        elif state[k] == 4: # authenticated, associated, 802.1X port unlocked
             out = "---*"
         print("{} : {}".format(k, out))
         
