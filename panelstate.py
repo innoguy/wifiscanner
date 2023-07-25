@@ -71,7 +71,7 @@ panels = [
 ]
 
 if testing:
-    panels = ['f8:4d:89:92:ad:f0'] + panels
+    panels = ['44:da:30:81:bb:2e'] + panels
 
 dot11protocol = [
     {'type': 0, 'subtype': 0,  'message': 'Association request'},
