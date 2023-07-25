@@ -11,9 +11,17 @@ prev_msg='x:x'
 ptime = ''
 pckts = None
 
+testing = True      # Adding Guy Coen Mac as panel
+aircrack = False    # Is aircrack-ng installed?
+
 def stopMonitoring(parameters):
     if (parameters["interface"] is not None):
-        os.system("airmon-ng stop {}".format(parameters["interface"]))
+        if aircrack:
+            os.system("airmon-ng stop {}".format(parameters["interface"]))
+        else:
+            os.system("systemctl start NetworkManager")
+            os.system("systemctl start avahi-daemon")
+            os.system("systemctl start wpa_supplicant")
 
 def scanPackets(parameters):
     global pckts
@@ -61,6 +69,9 @@ panels = [
     '58:cf:79:dc:b3:a8',
     '58:cf:79:dc:9d:1c',
 ]
+
+if testing:
+    panels = ['f8:4d:89:92:ad:f0'] + panels
 
 dot11protocol = [
     {'type': 0, 'subtype': 0,  'message': 'Association request'},
@@ -232,10 +243,19 @@ if __name__ == "__main__":
             exit()
         try:
             print("Configuring to monitor channel {} on interface {}".format(channel, interface))
-            os.system('airmon-ng stop {}'.format(interface+"mon"))
-            os.system('airmon-ng check kill')
-            os.system('airmon-ng start {} {}'.format(interface, channel))
-            interface += "mon"
+            if aircrack:
+                os.system('airmon-ng stop {}'.format(interface+"mon"))
+                os.system('airmon-ng check kill')
+                os.system('airmon-ng start {} {}'.format(interface, channel))
+                interface += "mon"
+            else:
+                os.system("systemctl stop NetworkManager")
+                os.system("systemctl stop avahi-daemon")
+                os.system("systemctl stop wpa_supplicant")
+                os.system("ifconfig {} down".format(interface))
+                os.system("iwconfig {} mode monitor".format(interface))
+                os.system("iwconfig {} channel {}".format(interface, channel))
+                os.system("ifconfig {} up".format(interface))
         except Exception as error: 
             print("Failed to open network interface: {}".format(error))
             exit()
