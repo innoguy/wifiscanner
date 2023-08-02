@@ -12,7 +12,7 @@ ptime = ''
 pckts = None
 
 testing = True      # Adding Guy Coen Mac as panel
-aircrack = False    # Is aircrack-ng installed?
+aircrack = True    # Is aircrack-ng installed?
 
 def stopMonitoring(parameters):
     if (parameters["interface"] is not None):
@@ -35,20 +35,21 @@ def scanPackets(parameters):
         exit()
 
 def readPackets(parameters):
-    global pckts
-    print("Processing {}. Please wait!".format(parameters["filename"]))
-    # pckts = rdpcap(args.pcapfile)
-    reader = PcapReader(parameters["filename"])
-    # print("Read {} packets from file.".format(len(pckts)))
-    if parameters["mode"] == 'status':
-        module = analysePacket
-    elif parameters["mode"] == 'protocol':
-        module = analyseProtocol
-    else:
-        print("Mode not set")
-        exit()
-    for p in reader:
-        module(p)
+    while True:
+        global pckts
+        print("Processing {}. Please wait!".format(parameters["filename"]))
+        # pckts = rdpcap(args.pcapfile)
+        reader = PcapReader(parameters["filename"])
+        # print("Read {} packets from file.".format(len(pckts)))
+        if parameters["mode"] == 'status':
+            module = analysePacket
+        elif parameters["mode"] == 'protocol':
+            module = analyseProtocol
+        else:
+            print("Mode not set")
+            exit()
+        for p in reader:
+            module(p)
 
 # Type 0    :   Management
 # Type 1    :   Control
@@ -71,7 +72,8 @@ panels = [
 ]
 
 if testing:
-    panels = ['d2:5d:ec:f9:5d:b4'] + panels
+    panels = ['d2:5d:ec:f9:5d:b4',
+              'ae:95:c8:d7:f2:12'] + panels
 
 dot11protocol = [
     {'type': 0, 'subtype': 0,  'message': 'Association request'},
@@ -153,6 +155,27 @@ def analysePacket(p):
     global state
     global ptime
     global panels
+    global network
+    if p.haslayer(Dot11Elt):
+        try:
+            ssid = p[Dot11Elt].info.decode()
+        except:
+            ssid = ''
+        if ssid == network["ssid"]:
+            if p.haslayer(Dot11Beacon):
+                stats = p[Dot11Beacon].network_stats()
+                try:
+                    channel = stats.get("channel")
+                except:
+                    channel = 0
+                if channel is None:
+                    channel = 0
+                if (int(channel) != network["channel"]): 
+                    # print("channel: {} type {}".format(channel, type(channel)))
+                    # print("network[channel]: {} type {}".format(network["channel"], type(network["channel"])))
+                    print("CHANNEL CHANGED: channel for SSID {} is now {}".format(ssid, channel))
+                    os.system("iwconfig {} channel {}".format(network["interface"], channel))
+                    network["channel"] = channel
     if p.haslayer(Dot11):
         if (p.addr1 in panels):
             ptime = p.time
@@ -196,66 +219,77 @@ def analysePacket(p):
                 else:
                     pass
 
+
 def showStatus():
-    global state
-    global ptime
-    os.system('clear')
-    print("Showing status at {}:".format(ptime))
-    for k in state.copy():
-        if state[k] == 1:   # unauthenticated, unassociated
-            out = "*---"
-        elif state[k] == 2: # authenticated, unassociated
-            out = "-*--"
-        elif state[k] == 3: # authenticated, associated, 802.1X port locked
-            out = "--*-"
-        elif state[k] == 4: # authenticated, associated, 802.1X port unlocked
-            out = "---*"
-        print("{} : {}".format(k, out))
+    while True:
+        global state
+        global ptime
+        global network
+        # os.system('clear')
+        print("Showing status at {}:".format(ptime))
+        for k in state.copy():
+            if state[k] == 1:   # unauthenticated, unassociated
+                out = "*---"
+            elif state[k] == 2: # authenticated, unassociated
+                out = "-*--"
+            elif state[k] == 3: # authenticated, associated, 802.1X port locked
+                out = "--*-"
+            elif state[k] == 4: # authenticated, associated, 802.1X port unlocked
+                out = "---*"
+            print("{} : {}".format(k, out))
+        print("Channel: {}, SSID: {}".format(network["channel"], network["ssid"]))
+        time.sleep(1)
         
 
 def showProtocol():
-    global prot
-    os.system('clear')
-    for k in prot.copy():
-        print("{} : {}".format(k, prot[k]))
+    while True:
+        global prot
+        os.system('clear')
+        for k in prot.copy():
+            print("{} : {}".format(k, prot[k]))
 
 if __name__ == "__main__":
+    network = {}
     parser = argparse.ArgumentParser(description='Monitor wifi connections.')
     parser.add_argument('-r', '--read', help="Read packets from pcap file")
     parser.add_argument('-i', '--interface', help="Sniff packets from wireless network interface")
     parser.add_argument('-c', '--channel', help="Channel to sniff")
+    parser.add_argument('-s', '--ssid', help="SSID to sniff")
     parser.add_argument('-m', '--mode', help="Mode of operartion (status | protocol)")
     args = parser.parse_args()
     filename = args.read
-    interface = args.interface
+    network["interface"] = args.interface
     if args.channel is not None:
-        channel = int(args.channel)
+        network["channel"] = int(args.channel)
     else: 
-        channel = 0
+        network["channel"] = 0
+    if args.ssid is not None:
+        network["ssid"] = args.ssid
+        
     mode = args.mode
     
-    if filename is None and interface is None:
+    if filename is None and network["interface"] is None:
         print("Please choose -r (to read from file) or -i (to scan from network interface)")
         exit()
-    if interface is not None:
-        if channel is None:
-            print("Please set wifi channel to sniff")
+    if network["interface"] is not None:
+        if (network["channel"] is None or network["ssid"] is None):
+            print("Please set initial wifi channel and ssid to sniff")
             exit()
         try:
-            print("Configuring to monitor channel {} on interface {}".format(channel, interface))
+            print("Configuring to monitor channel {} on interface {}".format(network["channel"], network["interface"]))
             if aircrack:
-                os.system('airmon-ng stop {}'.format(interface+"mon"))
+                os.system('airmon-ng stop {}'.format(network["interface"]+"mon"))
                 os.system('airmon-ng check kill')
-                os.system('airmon-ng start {} {}'.format(interface, channel))
-                interface += "mon"
+                os.system('airmon-ng start {} {}'.format(network["interface"], network["channel"]))
+                network["interface"] += "mon"
             else:
                 os.system("systemctl stop NetworkManager")
                 os.system("systemctl stop avahi-daemon")
                 os.system("systemctl stop wpa_supplicant")
-                os.system("ifconfig {} down".format(interface))
-                os.system("iwconfig {} mode monitor".format(interface))
-                os.system("iwconfig {} channel {}".format(interface, channel))
-                os.system("ifconfig {} up".format(interface))
+                os.system("ifconfig {} down".format(network["interface"]))
+                os.system("iwconfig {} mode monitor".format(network["interface"]))
+                os.system("iwconfig {} channel {}".format(network["interface"], network["channel"]))
+                os.system("ifconfig {} up".format(network["interface"]))
         except Exception as error: 
             print("Failed to open network interface: {}".format(error))
             exit()
@@ -265,19 +299,19 @@ if __name__ == "__main__":
     parameters = {
         "filename": filename,
         "mode" : mode,
-        "channel" : channel,
-        "interface" : interface,   
+        "channel" : network["channel"],
+        "interface" : network["interface"],   
     }
     atexit.register(stopMonitoring, parameters)
-    t1 = threading.Thread(target=module, args=[parameters])
-    t1.start()
-    while True:
-        if mode == "status":
-            showStatus()
-        elif mode == "protocol":
-            showProtocol()
-        else:
-            print("Please specify mode with -m status|protocol")
-            exit()
-        time.sleep(0.1)
+    # t1 = threading.Thread(target=module, args=[parameters])
+    # t1.daemon = True
+    # t1.start()
+    if mode == "status":
+        reporting = showStatus
+    elif mode == "protocol":
+        reporting = showProtocol
+    t2 = threading.Thread(target=reporting, args=[])
+    t2.daemon = True
+    t2.start()
+    scanPackets(parameters)
 
