@@ -4,6 +4,7 @@ import os
 import time
 import threading
 import atexit
+from itertools import cycle
 
 state = {}
 prot = {}
@@ -11,25 +12,64 @@ prev_msg='x:x'
 ptime = ''
 pckts = None
 
-testing = True      # Adding Guy Coen Mac as panel
+testing  = True     # Adding Guy Coen Mac as panel
 aircrack = True    # Is aircrack-ng installed?
 
 def stopMonitoring(parameters):
-    if (parameters["interface"] is not None):
+    if (network["interface"] is not None):
         if aircrack:
-            os.system("airmon-ng stop {}".format(parameters["interface"]))
+            os.system("airmon-ng stop {}".format(network["interface"]))
         else:
             os.system("systemctl start NetworkManager")
             os.system("systemctl start avahi-daemon")
             os.system("systemctl start wpa_supplicant")
 
+def channelSweep():
+    channels = [1,2,3,4,5,6,7,8,9,10,11,12,13]  # Limit to 2.4GHz channels
+    ccycle = cycle(channels)
+    while True:
+        changeChannel(next(ccycle))
+        time.sleep(5)
+
+def changeChannel(newchannel):
+    global network
+    if network["interface"] is not None:
+        os.system("iwconfig {} channel {}".format(network["interface"], newchannel))
+    network["channel"] = newchannel
+    print("Switched to channel {}".format(newchannel))
+
+
+def getChannel():
+    channel = 0
+    global network
+    channels = [1,2,3,4,5,6,7,8,9,10,11,12,13]
+    ccycle = cycle(channels)
+    while True:
+        changeChannel(next(ccycle))
+        pckts = sniff(iface=network["interface"], filter="wlan type mgt subtype beacon", count=10, timeout=1)
+        for p in pckts:
+            if p.haslayer(Dot11Beacon):
+                stats = p[Dot11Beacon].network_stats()
+                if stats["ssid"] == network["ssid"]:
+                    try:
+                        channel = stats["channel"]
+                    except:
+                        if p.haslayer(RadioTap): 
+                            try:
+                                channel = (p[RadioTap].Channel - 5000 ) // 5
+                            except:
+                                pass
+            if channel > 0:
+                    return channel
+
 def scanPackets(parameters):
     global pckts
-    print("Starting scan on interface {}".format(parameters["interface"]))
+    global network
+    print("Starting scan on interface {}".format(network["interface"]))
     if parameters["mode"] == 'status':
-        pckts = sniff(iface=parameters["interface"], prn=lambda p: analysePacket(p))
+        pckts = sniff(iface=network["interface"], prn=lambda p: analysePacket(p))
     elif parameters["mode"] == 'protocol':
-        pckts = sniff(iface=parameters["interface"], prn=lambda p: analyseProtocol(p))
+        pckts = sniff(iface=network["interface"], prn=lambda p: analyseProtocol(p))
     else:
         print("Mode not set")
         exit()
@@ -157,6 +197,14 @@ def analysePacket(p):
     global panels
     global network
     if p.haslayer(Dot11Elt):
+        dot11elt = p.getlayer(Dot11Elt)
+        while dot11elt:
+            if dot11elt.ID == 37: # Channel switch announcement => follow new channel
+                print("{}:{}".format(dot11elt.ID, dot11elt.info))
+                os.system("iwconfig {} channel {}".format(network["interface"], dot11elt.info[1]))
+                network["channel"] = dot11elt.info[1]
+            dot11elt = dot11elt.payload.getlayer(Dot11Elt)
+    if p.haslayer(Dot11Elt):
         try:
             ssid = p[Dot11Elt].info.decode()
         except:
@@ -171,11 +219,7 @@ def analysePacket(p):
                 if channel is None:
                     channel = 0
                 if (int(channel) != network["channel"]): 
-                    # print("channel: {} type {}".format(channel, type(channel)))
-                    # print("network[channel]: {} type {}".format(network["channel"], type(network["channel"])))
-                    print("CHANNEL CHANGED: channel for SSID {} is now {}".format(ssid, channel))
-                    os.system("iwconfig {} channel {}".format(network["interface"], channel))
-                    network["channel"] = channel
+                    changeChannel(channel)
     if p.haslayer(Dot11):
         if (p.addr1 in panels):
             ptime = p.time
@@ -219,14 +263,13 @@ def analysePacket(p):
                 else:
                     pass
 
-
 def showStatus():
     while True:
         global state
         global ptime
         global network
         # os.system('clear')
-        print("Showing status at {}:".format(ptime))
+        print("Showing status at {} with ptime {}:".format(time.time(), ptime))
         for k in state.copy():
             if state[k] == 1:   # unauthenticated, unassociated
                 out = "*---"
@@ -239,7 +282,6 @@ def showStatus():
             print("{} : {}".format(k, out))
         print("Channel: {}, SSID: {}".format(network["channel"], network["ssid"]))
         time.sleep(1)
-        
 
 def showProtocol():
     while True:
@@ -254,27 +296,26 @@ if __name__ == "__main__":
     parser.add_argument('-r', '--read', help="Read packets from pcap file")
     parser.add_argument('-i', '--interface', help="Sniff packets from wireless network interface")
     parser.add_argument('-c', '--channel', help="Channel to sniff")
-    parser.add_argument('-s', '--ssid', help="SSID to sniff")
+    parser.add_argument('-s', '--ssid', required=True, help="SSID to sniff")
     parser.add_argument('-m', '--mode', help="Mode of operartion (status | protocol)")
     args = parser.parse_args()
     filename = args.read
     network["interface"] = args.interface
+    network["ssid"] = args.ssid
     if args.channel is not None:
         network["channel"] = int(args.channel)
-    else: 
-        network["channel"] = 0
-    if args.ssid is not None:
-        network["ssid"] = args.ssid
-        
-    mode = args.mode
+    else:
+        network["channel"] = 1
+    if args.mode is not None:  
+        mode = args.mode
+    else:
+        mode = 'status'
     
     if filename is None and network["interface"] is None:
         print("Please choose -r (to read from file) or -i (to scan from network interface)")
         exit()
+
     if network["interface"] is not None:
-        if (network["channel"] is None or network["ssid"] is None):
-            print("Please set initial wifi channel and ssid to sniff")
-            exit()
         try:
             print("Configuring to monitor channel {} on interface {}".format(network["channel"], network["interface"]))
             if aircrack:
@@ -296,22 +337,33 @@ if __name__ == "__main__":
         module = scanPackets
     elif filename is not None:
         module = readPackets
+
     parameters = {
         "filename": filename,
         "mode" : mode,
-        "channel" : network["channel"],
-        "interface" : network["interface"],   
     }
+
+    if network["interface"] is not None:
+        network["channel"] = getChannel()
+
     atexit.register(stopMonitoring, parameters)
+
     # t1 = threading.Thread(target=module, args=[parameters])
     # t1.daemon = True
     # t1.start()
+    
     if mode == "status":
         reporting = showStatus
     elif mode == "protocol":
         reporting = showProtocol
+
     t2 = threading.Thread(target=reporting, args=[])
     t2.daemon = True
     t2.start()
-    scanPackets(parameters)
+
+    # t3 = Thread(target=channelSweep)
+    # t3.daemon = True
+    # t3.start()
+
+    module(parameters)
 
