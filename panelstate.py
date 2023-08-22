@@ -7,13 +7,14 @@ import atexit
 from itertools import cycle
 
 state = {}
+strength = {}
 prot = {}
 prev_msg='x:x'
 ptime = ''
 pckts = None
 
 testing  = True     # Adding Guy Coen Mac as panel
-aircrack = True    # Is aircrack-ng installed?
+aircrack = True     # Is aircrack-ng installed?
 
 def stopMonitoring(parameters):
     if (network["interface"] is not None):
@@ -113,7 +114,8 @@ panels = [
 
 if testing:
     panels = ['d2:5d:ec:f9:5d:b4',
-              'ae:95:c8:d7:f2:12'] + panels
+              'ae:95:c8:d7:f2:12',
+              'f8:4d:89:92:ad:f0'] + panels
 
 dot11protocol = [
     {'type': 0, 'subtype': 0,  'message': 'Association request'},
@@ -196,6 +198,8 @@ def analysePacket(p):
     global ptime
     global panels
     global network
+    dbm_signal = "N/A"
+
     if p.haslayer(Dot11Elt):
         dot11elt = p.getlayer(Dot11Elt)
         while dot11elt:
@@ -220,15 +224,20 @@ def analysePacket(p):
                     channel = 0
                 if (int(channel) != network["channel"]): 
                     changeChannel(channel)
+
+    if p.haslayer(RadioTap):
+        dbm_signal = p[RadioTap].dBm_AntSignal
+
     if p.haslayer(Dot11):
         if (p.addr1 in panels):
             ptime = p.time
+            strength.update({p.addr1 : dbm_signal})
             if p.addr1 not in state.keys():
                 state.update({p.addr1 : 1})
             elif (p.type == 0 and p.subtype == 11) and (state[p.addr1] < 2):
-                state.update({p.addr1 : 2})
-            elif ((p.type == 0 and p.subtype == 1) or (p.type == 0 and p.subtype == 3)) and (state[p.addr1] < 3):
-                state.update({p.addr1 : 3})
+                state.update({p.addr1 : 1.1})
+            elif ((p.type == 0 and p.subtype == 0) or (p.type == 0 and p.subtype == 2)) and (state[p.addr1] == 2):
+                state.update({p.addr1 : 2.1})
             elif p.type == 0 and p.subtype == 10 and (state[p.addr1] >= 3 ):
                 state.update({p.addr1 : 2})
             elif p.type == 0 and p.subtype == 12 and (state[p.addr1] >= 2 ):
@@ -236,7 +245,10 @@ def analysePacket(p):
             elif ((p.type == 1 and p.subtype == 11) or 
                   (p.type == 1 and p.subtype == 12) or 
                   (p.type == 2 and p.subtype == 4) or 
-                  (p.type == 2 and p.subtype == 12) 
+                  (p.type == 2 and p.subtype == 12) or
+                  (p.type == 2 and p.subtype == 8) or
+                  (p.type == 2 and p.subtype == 0) or
+                  (p.type == 0 and p.subtype == 13) 
                   ) and (state[p.addr1] < 3):
                 state.update({p.addr1 : 3})
             else:
@@ -244,6 +256,7 @@ def analysePacket(p):
         if not p.addr2 is None:
             if (p.addr2 in panels):
                 ptime = p.time
+                strength.update({p.addr2 : dbm_signal})
                 if p.addr2 not in state.keys():
                     state.update({p.addr2 : 1})
                 elif p.type == 0 and p.subtype == 11:
@@ -257,7 +270,10 @@ def analysePacket(p):
                 elif ((p.type == 1 and p.subtype == 11) or 
                       (p.type == 1 and p.subtype == 12) or 
                       (p.type == 2 and p.subtype == 4) or 
-                      (p.type == 2 and p.subtype == 12) 
+                      (p.type == 2 and p.subtype == 12) or
+                      (p.type == 2 and p.subtype == 8) or
+                      (p.type == 2 and p.subtype == 0) or
+                      (p.type == 0 and p.subtype == 13) 
                       ) and (state[p.addr2] < 3):
                     state.update({p.addr2 : 3})
                 else:
@@ -266,20 +282,22 @@ def analysePacket(p):
 def showStatus():
     while True:
         global state
+        global strength
         global ptime
         global network
         # os.system('clear')
         print("Showing status at {} with ptime {}:".format(time.time(), ptime))
         for k in state.copy():
             if state[k] == 1:   # unauthenticated, unassociated
-                out = "*---"
+                out = "DETECTED"
             elif state[k] == 2: # authenticated, unassociated
-                out = "-*--"
-            elif state[k] == 3: # authenticated, associated, 802.1X port locked
-                out = "--*-"
-            elif state[k] == 4: # authenticated, associated, 802.1X port unlocked
-                out = "---*"
+                out = "AUTHENTICATED"
+            elif state[k] == 3: # authenticated, associated, 
+                out = "CONNECTED"
             print("{} : {}".format(k, out))
+        print("Signal strenghts:")
+        for k in strength.copy():
+            print("{} : {}dBm".format(k,strength[k]))
         print("Channel: {}, SSID: {}".format(network["channel"], network["ssid"]))
         time.sleep(1)
 
@@ -296,12 +314,12 @@ if __name__ == "__main__":
     parser.add_argument('-r', '--read', help="Read packets from pcap file")
     parser.add_argument('-i', '--interface', help="Sniff packets from wireless network interface")
     parser.add_argument('-c', '--channel', help="Channel to sniff")
-    parser.add_argument('-s', '--ssid', required=True, help="SSID to sniff")
+    parser.add_argument('-s', '--ssid', help="SSID to sniff") # required=True
     parser.add_argument('-m', '--mode', help="Mode of operartion (status | protocol)")
     args = parser.parse_args()
     filename = args.read
     network["interface"] = args.interface
-    network["ssid"] = args.ssid
+    network["ssid"] =  args.ssid
     if args.channel is not None:
         network["channel"] = int(args.channel)
     else:

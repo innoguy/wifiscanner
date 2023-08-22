@@ -1,21 +1,45 @@
 @startuml
-[*] --> State1 : Probe response (0/5)
+[*] --> State1 
 State1: Unauthenticated
 State1: Unassociated
-State1 --> State2 : Authentication (0/11)
+
+State1.1: Authenticating
+
 State2: Authenticated
 State2: Unassociated
-State2 --> Connected : Association response (0/1) \n Reassociation response (0/3)
+
+State1 --> State1.1 : 0/11 STA>BSS 
+State1.1 --> State2 : 0/11 BSS>STA
+
+
+State2   --> State2.1  : 0/0 STA>BSS  
+State2.1 --> Connected : 0/1 BSS>STA 
+State2.1: Associating
+
 state Connected {
     [*] -> State3
     State3: Authenticated
     State3: Associated
-    State3: 8021.X port locked
-    State3 --> State4
+    State3: 802.1X port locked
+
+    State3.1: Key1 rcvd \nWait Key2
+    State3.2: Key2 rcvd \nWait Key3
+    State3.3: Key3 rcvd \nWait Key4
+
+    State3   --> State3.1: 2/8 BSS>STA
+    State3.1 --> State3.2: 2/8 STA>BSS
+    State3.2 --> State3.3: 2/8 BSS>STA
+    State3.3 --> State4: 2/8 STA>BSS
+
     State4: Authenticated
     State4: Associated
-    State4: 8021.X port unlocked
+    State4: 802.1X port unlocked
+
 }
 Connected --> State2 : Disassociation (0/10)
 State2 --> State1 : Deauthentication (0/12)
+
+Connected --> Connected: 2/0 \n 2/8 \n 0/13 \n 2/4
+
+
 @enduml
